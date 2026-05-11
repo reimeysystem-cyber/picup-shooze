@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shoe Stock - コレクション管理</title>
+    <!-- Tailwind CSS for Styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .glass-card { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(10px); }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div class="max-w-5xl mx-auto px-4 h-16 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+                <div class="bg-indigo-600 p-1.5 rounded-lg">
+                    <i data-lucide="footprints" class="text-white"></i>
+                </div>
+                <h1 class="text-xl font-bold tracking-tight text-slate-800">Shoe Stock</h1>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="hidden sm:flex flex-col items-end">
+                    <span class="text-xs text-slate-500 font-medium">ステータス</span>
+                    <span id="user-status" class="text-sm font-bold text-slate-700">読み込み中...</span>
+                </div>
+                <div class="bg-slate-100 p-2 rounded-full">
+                    <i data-lucide="user" class="text-slate-600"></i>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto p-4 md:p-8 grid gap-8 md:grid-cols-[320px_1fr]">
+        <!-- Left Side: Registration Form -->
+        <aside class="space-y-6">
+            <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+                    <i data-lucide="plus-circle" class="text-indigo-600"></i> 新規登録
+                </h2>
+                <form id="shoe-form" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">モデル名</label>
+                        <input type="text" id="shoe-name" placeholder="Air Force 1 '07" required
+                            class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">ブランド</label>
+                        <input type="text" id="shoe-brand" placeholder="Nike" required
+                            class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">購入価格 (¥)</label>
+                        <input type="number" id="shoe-price" placeholder="12100" required
+                            class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all outline-none">
+                    </div>
+                    <button type="submit" class="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-md shadow-indigo-100 transition-all active:scale-[0.98]">
+                        コレクションに追加
+                    </button>
+                </form>
+            </section>
+
+            <!-- Stats Card -->
+            <section class="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg">
+                <p class="text-indigo-300 text-sm font-medium">合計評価額</p>
+                <div id="total-value" class="text-2xl font-bold mt-1">¥0</div>
+                <div class="mt-4 flex items-center gap-2 text-xs text-indigo-200">
+                    <i data-lucide="trending-up" style="width: 14px; height: 14px;"></i>
+                    <span>市場動向に基づいた概算です</span>
+                </div>
+            </section>
+        </aside>
+
+        <!-- Right Side: Collection List -->
+        <section class="space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <h2 class="text-xl font-bold text-slate-800">
+                    My Collection <span id="shoe-count" class="text-indigo-600 ml-1">0</span>
+                </h2>
+                <div class="relative">
+                    <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" style="width: 18px; height: 18px;"></i>
+                    <input type="text" id="search-input" placeholder="モデル名で検索..." 
+                        class="w-full sm:w-64 pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-full text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all">
+                </div>
+            </div>
+
+            <div id="shoe-list" class="grid gap-4">
+                <!-- Loading State / Empty State -->
+                <div class="text-center py-24 bg-white rounded-3xl border-2 border-dashed border-slate-200">
+                    <p class="text-slate-400 font-medium">データを読み込んでいます...</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+        // Firebase Configuration (Environment provided)
+        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+        const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'shoe-app-html';
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let currentUser = null;
+        let allShoes = [];
+
+        // UI Elements
+        const shoeForm = document.getElementById('shoe-form');
+        const shoeListContainer = document.getElementById('shoe-list');
+        const totalValueEl = document.getElementById('total-value');
+        const shoeCountEl = document.getElementById('shoe-count');
+        const searchInput = document.getElementById('search-input');
+        const userStatusEl = document.getElementById('user-status');
+
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // 1. Authentication
+        const initAuth = async () => {
+            try {
+                await signInAnonymously(auth);
+            } catch (error) {
+                console.error("Auth Error:", error);
+            }
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                userStatusEl.textContent = user.uid.slice(0, 8);
+                listenToShoes();
+            }
+        });
+
+        initAuth();
+
+        // 2. Listen to Firestore
+        function listenToShoes() {
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'shoes'));
+            
+            onSnapshot(q, (snapshot) => {
+                allShoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderShoes(allShoes);
+            }, (error) => {
+                console.error("Firestore Error:", error);
+            });
+        }
+
+        // 3. Render Shoes
+        function renderShoes(shoesToRender) {
+            if (shoesToRender.length === 0) {
+                shoeListContainer.innerHTML = `
+                    <div class="text-center py-24 bg-white rounded-3xl border-2 border-dashed border-slate-200">
+                        <div class="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i data-lucide="footprints" class="text-slate-300" style="width:32px; height:32px;"></i>
+                        </div>
+                        <p class="text-slate-400 font-medium">コレクションが空です</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                updateStats(0, 0);
+                return;
+            }
+
+            let totalValue = 0;
+            shoeListContainer.innerHTML = shoesToRender.map(shoe => {
+                const marketValue = shoe.marketValue || 0;
+                totalValue += marketValue;
+                return `
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group hover:shadow-md hover:border-indigo-100 transition-all">
+                        <div class="flex items-center gap-4">
+                            <div class="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                                <i data-lucide="footprints" class="text-indigo-500" style="width:28px; height:28px;"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-800">${escapeHtml(shoe.name)}</h3>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <span class="text-xs font-bold px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">
+                                        ${escapeHtml(shoe.brand)}
+                                    </span>
+                                    <span class="text-xs text-slate-400">by ${escapeHtml(shoe.userName || '匿名')}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="flex items-center gap-1 text-emerald-600 font-extrabold text-lg justify-end">
+                                <span class="text-sm font-normal mr-0.5">¥</span>
+                                ${marketValue.toLocaleString()}
+                            </div>
+                            <div class="flex items-center gap-1 justify-end text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                <i data-lucide="trending-up" style="width:10px; height:10px;"></i>
+                                Market Value
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            lucide.createIcons();
+            updateStats(shoesToRender.length, totalValue);
+        }
+
+        function updateStats(count, value) {
+            shoeCountEl.textContent = count;
+            totalValueEl.textContent = `¥${value.toLocaleString()}`;
+        }
+
+        // 4. Add Shoe
+        shoeForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentUser) return;
+
+            const name = document.getElementById('shoe-name').value;
+            const brand = document.getElementById('shoe-brand').value;
+            const price = Number(document.getElementById('shoe-price').value);
+
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'shoes'), {
+                    name,
+                    brand,
+                    purchasePrice: price,
+                    userId: currentUser.uid,
+                    userName: `User_${currentUser.uid.slice(0, 4)}`,
+                    createdAt: serverTimestamp(),
+                    marketValue: Math.floor(price * (0.8 + Math.random() * 0.7))
+                });
+                shoeForm.reset();
+            } catch (error) {
+                console.error("Add Error:", error);
+                alert("登録に失敗しました。");
+            }
+        });
+
+        // 5. Search Logic
+        searchInput.addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            const filtered = allShoes.filter(s => 
+                s.name.toLowerCase().includes(term) || 
+                s.brand.toLowerCase().includes(term)
+            );
+            renderShoes(filtered);
+        });
+
+        // Helper: Escape HTML to prevent XSS
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
