@@ -91,7 +91,6 @@
             </div>
 
             <div id="shoe-list" class="grid gap-4">
-                <!-- Loading State / Empty State -->
                 <div class="text-center py-24 bg-white rounded-3xl border-2 border-dashed border-slate-200">
                     <p class="text-slate-400 font-medium">データを読み込んでいます...</p>
                 </div>
@@ -99,15 +98,19 @@
         </section>
     </main>
 
+    <!-- 1. Firebaseの設定を外部ファイルから読み込む形式に変更 -->
+    <script src="config.js"></script>
+
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-        // Firebase Configuration (Environment provided)
-        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
-        const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'shoe-app-html';
+        // config.js で定義された変数がここで使われます
+        // 万が一 config.js がない場合は window.__firebase_config (プレビュー環境用) を使います
+        const firebaseConfig = window.myAppConfig || JSON.parse(window.__firebase_config || '{}');
+        const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'my-shooze-picup-id';
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -124,32 +127,29 @@
         const searchInput = document.getElementById('search-input');
         const userStatusEl = document.getElementById('user-status');
 
-        // Initialize Lucide Icons
         lucide.createIcons();
 
-        // 1. Authentication
         const initAuth = async () => {
             try {
                 await signInAnonymously(auth);
             } catch (error) {
                 console.error("Auth Error:", error);
+                userStatusEl.textContent = "接続エラー";
             }
         };
 
         onAuthStateChanged(auth, (user) => {
             currentUser = user;
             if (user) {
-                userStatusEl.textContent = user.uid.slice(0, 8);
+                userStatusEl.textContent = "接続済み";
                 listenToShoes();
             }
         });
 
         initAuth();
 
-        // 2. Listen to Firestore
         function listenToShoes() {
             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'shoes'));
-            
             onSnapshot(q, (snapshot) => {
                 allShoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderShoes(allShoes);
@@ -158,7 +158,6 @@
             });
         }
 
-        // 3. Render Shoes
         function renderShoes(shoesToRender) {
             if (shoesToRender.length === 0) {
                 shoeListContainer.innerHTML = `
@@ -217,7 +216,6 @@
             totalValueEl.textContent = `¥${value.toLocaleString()}`;
         }
 
-        // 4. Add Shoe
         shoeForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             if (!currentUser) return;
@@ -239,11 +237,9 @@
                 shoeForm.reset();
             } catch (error) {
                 console.error("Add Error:", error);
-                alert("登録に失敗しました。");
             }
         });
 
-        // 5. Search Logic
         searchInput.addEventListener('input', (e) => {
             const term = e.target.value.toLowerCase();
             const filtered = allShoes.filter(s => 
@@ -253,7 +249,6 @@
             renderShoes(filtered);
         });
 
-        // Helper: Escape HTML to prevent XSS
         function escapeHtml(str) {
             const div = document.createElement('div');
             div.textContent = str;
