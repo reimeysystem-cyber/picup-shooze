@@ -74,8 +74,8 @@
                     <button onclick="setTheme('street')" class="p-2 rounded-lg hover:bg-white transition-all"><i data-lucide="zap" class="w-4 h-4"></i></button>
                 </div>
                 <div id="auth-indicator" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-500 text-xs font-bold">
-                    <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                    SECURE
+                    <span id="auth-dot" class="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span>
+                    <span id="auth-text">CONNECTING</span>
                 </div>
             </div>
         </div>
@@ -147,11 +147,11 @@
 
             <div id="shoe-list" class="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <!-- Initial State -->
-                <div class="col-span-full py-40 text-center flex flex-col items-center justify-center">
+                <div id="empty-state" class="col-span-full py-40 text-center flex flex-col items-center justify-center">
                     <div class="w-16 h-16 bg-slate-200/20 rounded-full flex items-center justify-center animate-pulse mb-4">
                         <i data-lucide="refresh-cw" class="w-8 h-8 text-indigo-500 animate-spin"></i>
                     </div>
-                    <p id="status-text" class="text-slate-400 font-bold">データを同期中...</p>
+                    <p id="status-text" class="text-slate-400 font-bold">データを読み込み中...</p>
                 </div>
             </div>
         </section>
@@ -167,6 +167,8 @@
         const body = document.getElementById('app-body');
         const listContainer = document.getElementById('shoe-list');
         const statusText = document.getElementById('status-text');
+        const authDot = document.getElementById('auth-dot');
+        const authText = document.getElementById('auth-text');
 
         window.setTheme = (theme) => {
             body.className = `theme-${theme} min-h-screen pb-12`;
@@ -190,22 +192,30 @@
 
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
+                    authDot.className = "w-2 h-2 bg-emerald-500 rounded-full";
+                    authText.textContent = "SECURE";
                     setupPrivateData(db, appId, user.uid);
                 } else {
-                    await signInAnonymously(auth);
+                    try {
+                        await signInAnonymously(auth);
+                    } catch (e) {
+                        authDot.className = "w-2 h-2 bg-red-500 rounded-full";
+                        authText.textContent = "AUTH ERROR";
+                    }
                 }
             });
 
             function setupPrivateData(db, appId, userId) {
-                // 【重要】パスを個人専用の /users/{userId}/shoes に変更
+                // コレクションのリファレンス
                 const userShoesRef = collection(db, 'artifacts', appId, 'users', userId, 'shoes');
                 
+                // リアルタイムリスナー
                 onSnapshot(userShoesRef, (snapshot) => {
-                    const shoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    render(shoes, db, appId, userId);
+                    window.allShoesCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    render(window.allShoesCache, db, appId, userId);
                 }, (error) => {
-                    console.error(error);
-                    statusText.textContent = "アクセス権限エラーが発生しました。";
+                    console.error("Firestore Error:", error);
+                    statusText.innerHTML = `<span class="text-red-500">【保存に失敗しました】</span><br>Firebaseのルール設定が必要です。`;
                 });
 
                 // フォーム送信
@@ -220,18 +230,25 @@
                     try {
                         btn.disabled = true;
                         btn.textContent = "SAVING...";
+                        
                         await addDoc(userShoesRef, {
                             name, brand, purchasePrice: price,
                             imageUrl: imageUrl || null,
                             createdAt: serverTimestamp(),
                             marketValue: Math.floor(price * (0.85 + Math.random() * 0.45))
                         });
+                        
                         e.target.reset();
-                    } catch (err) { alert("保存できませんでした: " + err.message); }
-                    finally { btn.disabled = false; btn.textContent = "COLLECTIONに追加"; }
+                    } catch (err) { 
+                        console.error(err);
+                        alert("保存できませんでした。Firebaseの「ルール」が更新されているか確認してください。"); 
+                    } finally { 
+                        btn.disabled = false; 
+                        btn.textContent = "COLLECTIONに追加"; 
+                    }
                 };
 
-                // 削除機能
+                // 削除
                 window.deleteShoe = async (id) => {
                     if(confirm("このアイテムを削除してもよろしいですか？")) {
                         await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'shoes', id));
@@ -250,8 +267,6 @@
         }
 
         function render(shoes, db, appId, userId, isSearch = false) {
-            if(!isSearch) window.allShoesCache = shoes;
-            
             const countEl = document.getElementById('shoe-count');
             const totalEl = document.getElementById('total-value');
             
@@ -260,8 +275,10 @@
                     <div class="col-span-full py-40 text-center border-2 border-dashed border-slate-500/20 rounded-[3rem]">
                         <p class="text-slate-400 font-bold">コレクションがまだありません</p>
                     </div>`;
-                countEl.textContent = "0 Items";
-                totalEl.textContent = "¥0";
+                if(!isSearch) {
+                    countEl.textContent = "0 Items";
+                    totalEl.textContent = "¥0";
+                }
                 lucide.createIcons();
                 return;
             }
@@ -285,11 +302,11 @@
                             </button>
                         </div>
                         <div class="flex justify-between items-start">
-                            <div>
+                            <div class="flex-1 pr-2">
                                 <p class="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">${escapeHtml(s.brand)}</p>
-                                <h3 class="text-xl font-black tracking-tight leading-tight">${escapeHtml(s.name)}</h3>
+                                <h3 class="text-xl font-black tracking-tight leading-tight break-words">${escapeHtml(s.name)}</h3>
                             </div>
-                            <div class="text-right">
+                            <div class="text-right shrink-0">
                                 <p class="text-[10px] font-bold opacity-40 uppercase tracking-tighter">Est. Value</p>
                                 <p class="text-lg font-black text-emerald-500 tracking-tighter">¥${(s.marketValue || 0).toLocaleString()}</p>
                             </div>
