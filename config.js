@@ -1,3 +1,4 @@
+// Firebaseからコピーした中から、設定値（Config）だけを myAppConfig という変数に入れます
 window.myAppConfig = {
   apiKey: "AIzaSyCKj_r2QHn47KgQXVQmg8_j4_mm3HHzZBY",
   authDomain: "my-shooze-picup.firebaseapp.com",
