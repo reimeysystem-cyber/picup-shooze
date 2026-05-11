@@ -11,6 +11,7 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; }
+        .glass-card { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(10px); }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen">
@@ -65,18 +66,18 @@
                 </form>
             </section>
 
-            <!-- 統計カード -->
+            <!-- 合計統計カード -->
             <section class="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg">
                 <p class="text-indigo-300 text-sm font-medium">合計評価額</p>
                 <div id="total-value" class="text-2xl font-bold mt-1">¥0</div>
                 <div class="mt-4 flex items-center gap-2 text-xs text-indigo-200">
                     <i data-lucide="trending-up" style="width: 14px; height: 14px;"></i>
-                    <span>市場価値の概算を表示中</span>
+                    <span>市場価値をリアルタイム反映中</span>
                 </div>
             </section>
         </aside>
 
-        <!-- 右側：リスト -->
+        <!-- 右側：リスト表示 -->
         <section class="space-y-4">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <h2 class="text-xl font-bold text-slate-800">
@@ -84,22 +85,22 @@
                 </h2>
                 <div class="relative">
                     <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" style="width: 18px; height: 18px;"></i>
-                    <input type="text" id="search-input" placeholder="モデル名で検索..." 
+                    <input type="text" id="search-input" placeholder="検索..." 
                         class="w-full sm:w-64 pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-full text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all">
                 </div>
             </div>
 
             <div id="shoe-list" class="grid gap-4">
-                <div id="loading-state" class="text-center py-24 bg-white rounded-3xl border-2 border-dashed border-slate-200">
+                <div id="status-container" class="text-center py-24 bg-white rounded-3xl border-2 border-dashed border-slate-200">
                     <div id="loading-spinner" class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-                    <p id="loading-text" class="text-slate-400 font-medium">Firebaseと通信中...</p>
+                    <p id="status-text" class="text-slate-400 font-medium">Firebase 接続中...</p>
                 </div>
             </div>
         </section>
     </main>
 
-    <!-- 1. config.jsを読み込み (defer属性を削除して確実に先に読み込む) -->
-    <script src="config.js"></script>
+    <!-- config.js の読み込み -->
+    <script src="./config.js"></script>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
@@ -107,23 +108,23 @@
         import { getFirestore, collection, addDoc, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
         const userStatusEl = document.getElementById('user-status');
-        const loadingText = document.getElementById('loading-text');
+        const statusText = document.getElementById('status-text');
         const shoeListContainer = document.getElementById('shoe-list');
+        const spinner = document.getElementById('loading-spinner');
 
-        // アプリ起動関数
-        async function startApp() {
-            // 設定情報の取得
+        // アプリケーションの初期化
+        async function initApp() {
+            // config.js が読み込まれているかチェック
             const config = window.myAppConfig || (window.__firebase_config ? JSON.parse(window.__firebase_config) : null);
 
             if (!config || !config.apiKey) {
                 userStatusEl.textContent = "設定なし";
-                loadingText.innerHTML = `<span class="text-red-500 font-bold">【設定エラー】</span><br>config.js が正しく読み込めていません。<br>ファイル名が「config.js」であること、内容が正しいことを確認してください。`;
-                document.getElementById('loading-spinner').classList.add('hidden');
+                statusText.innerHTML = `<span class="text-red-500 font-bold">【設定エラー】</span><br>config.js が正しく読み込まれていません。`;
+                spinner.classList.add('hidden');
                 return;
             }
 
             try {
-                // Firebase 初期化
                 const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'my-shooze-picup';
                 const app = initializeApp(config);
                 const auth = getAuth(app);
@@ -132,35 +133,35 @@
                 let allShoes = [];
                 lucide.createIcons();
 
-                // 認証処理
+                // 認証の監視
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userStatusEl.textContent = "接続済み";
-                        listenToShoes(db, appId);
+                        setupDataListener(db, appId);
                     } else {
                         try {
                             await signInAnonymously(auth);
                         } catch (err) {
                             console.error("Auth error:", err);
-                            userStatusEl.textContent = "接続エラー";
-                            loadingText.textContent = "認証に失敗しました。匿名認証を有効にしてください。";
+                            userStatusEl.textContent = "接続失敗";
+                            statusText.textContent = "匿名認証が無効です。";
                         }
                     }
                 });
 
-                // データ監視関数
-                function listenToShoes(db, appId) {
+                // Firestore データのリアルタイム監視
+                function setupDataListener(db, appId) {
                     const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'shoes'));
                     onSnapshot(q, (snapshot) => {
                         allShoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                         renderShoes(allShoes);
                     }, (error) => {
                         console.error("Firestore Error:", error);
-                        loadingText.innerHTML = `<span class="text-red-500 font-bold">【アクセス拒否】</span><br>Firebaseの「ルール」設定を貼り付けましたか？`;
+                        statusText.innerHTML = `<span class="text-red-500 font-bold">【アクセス拒否】</span><br>Firebaseのルールを確認してください。`;
                     });
                 }
 
-                // 登録ボタンのイベント
+                // フォーム送信
                 document.getElementById('shoe-form').onsubmit = async (e) => {
                     e.preventDefault();
                     if (!auth.currentUser) return;
@@ -172,51 +173,64 @@
 
                     try {
                         btn.disabled = true;
-                        btn.textContent = "送信中...";
+                        btn.textContent = "保存中...";
+                        
                         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'shoes'), {
                             name, brand, purchasePrice: price,
                             userId: auth.currentUser.uid,
                             userName: `User_${auth.currentUser.uid.slice(0, 4)}`,
                             createdAt: serverTimestamp(),
-                            marketValue: Math.floor(price * (0.8 + Math.random() * 0.7))
+                            marketValue: Math.floor(price * (0.9 + Math.random() * 0.5)) // 擬似市場価値
                         });
+                        
                         e.target.reset();
                     } catch (err) {
-                        alert("登録エラー: " + err.message);
+                        alert("エラーが発生しました: " + err.message);
                     } finally {
                         btn.disabled = false;
                         btn.textContent = "コレクションに追加";
                     }
                 };
 
-            } catch (initError) {
-                console.error("Initialization error:", initError);
-                loadingText.textContent = "アプリの初期化中にエラーが発生しました。";
+                // 検索機能
+                document.getElementById('search-input').oninput = (e) => {
+                    const term = e.target.value.toLowerCase();
+                    const filtered = allShoes.filter(s => 
+                        s.name.toLowerCase().includes(term) || 
+                        s.brand.toLowerCase().includes(term)
+                    );
+                    renderShoes(filtered);
+                };
+
+            } catch (err) {
+                console.error("Initialization Error:", err);
+                statusText.textContent = "アプリの起動中にエラーが発生しました。";
             }
         }
 
-        // --- 表示ロジック ---
+        // リスト描画
         function renderShoes(shoes) {
-            const shoeCountEl = document.getElementById('shoe-count');
-            const totalValueEl = document.getElementById('total-value');
+            const countEl = document.getElementById('shoe-count');
+            const totalEl = document.getElementById('total-value');
             
             if (shoes.length === 0) {
                 shoeListContainer.innerHTML = `
                     <div class="text-center py-24 bg-white rounded-3xl border-2 border-dashed border-slate-200">
                         <i data-lucide="footprints" class="text-slate-300 mx-auto mb-4" style="width:40px; height:40px;"></i>
-                        <p class="text-slate-400 font-medium">まだ靴が登録されていません</p>
+                        <p class="text-slate-400 font-medium">コレクションは空です</p>
                     </div>`;
                 lucide.createIcons();
-                shoeCountEl.textContent = "0";
-                totalValueEl.textContent = "¥0";
+                countEl.textContent = "0";
+                totalEl.textContent = "¥0";
                 return;
             }
 
             let total = 0;
-            shoeListContainer.innerHTML = shoes.map(s => {
-                total += (s.marketValue || 0);
+            shoeListContainer.innerHTML = shoes.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(s => {
+                const val = s.marketValue || 0;
+                total += val;
                 return `
-                    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+                    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition-shadow">
                         <div class="flex items-center gap-3">
                             <div class="p-2 bg-indigo-50 rounded-lg"><i data-lucide="footprints" class="text-indigo-500"></i></div>
                             <div>
@@ -225,13 +239,14 @@
                             </div>
                         </div>
                         <div class="text-right">
-                            <div class="font-bold text-emerald-600">¥${(s.marketValue || 0).toLocaleString()}</div>
+                            <div class="font-bold text-emerald-600">¥${val.toLocaleString()}</div>
                         </div>
                     </div>`;
             }).join('');
+            
             lucide.createIcons();
-            shoeCountEl.textContent = shoes.length;
-            totalValueEl.textContent = `¥${total.toLocaleString()}`;
+            countEl.textContent = shoes.length;
+            totalEl.textContent = `¥${total.toLocaleString()}`;
         }
 
         function escapeHtml(str) {
@@ -240,8 +255,8 @@
             return div.innerHTML;
         }
 
-        // 全体の読み込み完了後にアプリを開始
-        window.onload = startApp;
+        // ページ読み込み完了後に開始
+        window.addEventListener('load', initApp);
     </script>
 </body>
 </html>
